@@ -1,0 +1,83 @@
+WITH BASE AS
+
+(
+SELECT a.ID ORDER_ID,
+a.CONSUMER_ID,
+a.FIRST_PAYMENT_UP_FRONT,
+a.MERCHANT_ID  MERCHANT_ID,
+a.TRADING_NAME  MERCHANT_NAME,
+a.ORDER_DATE  ORDER_DATE,
+a.CONSUMER_AMOUNT  ORDER_AMT
+FROM AP_RAW_GREEN.green.F_ORDER a
+where	a.CONSUMER_ID in (....)--example of filtering
+ and a.ORDER_DATE between '2020-03-16' and '2022-04-30'--example of filtering
+ and a.ORDER_TRANSACTION_STATUS = 'Approved'
+ and a.payment_type <>'PCL'
+ and a.order_transaction_source not in ('ANYWHERE_CARD','ANYWHERE_CARD_ONLINE')
+),
+
+instalment_seq AS --to correctly calculate the principal for BNPl and Plus
+
+(
+SELECT
+distinct a.id instalment_id,
+a.gdp_region,
+a.order_id,
+a.original_due_date,
+row_number() over ( partition by a.order_id,gdp_region order by a.original_due_date asc )  as instalment_seq_id
+FROM ap_raw_green.green.f_instalment a
+JOIN BASE b
+ON a.order_id = b.order_id
+order by 2,3,1
+),
+            
+DISCOUNT AS
+(
+SELECT	A.ORDER_ID,
+sum(A.amount_paid) DISCOUNT_AMT,
+FROM AP_RAW_GREEN.green.F_INSTALMENT_EVENTS	A
+JOIN BASE B
+ON 	A.ORDER_ID = B.order_id 
+WHERE A.EVENT_TYPE in ('DISCOUNT')
+GROUP BY 1
+),
+
+downpayment AS 
+(
+SELECT	A.ORDER_ID,
+sum(A.amount_paid)  DOWN_PAYMENT_AMT
+FROM	AP_RAW_GREEN.green.F_INSTALMENT_EVENTS	A
+JOIN	INSTALMENT_SEQ	B
+ON 	(A.GDP_REGION = B.GDP_REGION and A.instalment_id = B.instalment_id)
+JOIN	AP_RAW_GREEN.green.F_PAYMENT	C
+ON 	(A.GDP_REGION = C.GDP_REGION and A.PAYMENT_ID = C.id AND A.event_date = C.completed_date)
+JOIN base	E
+on 	(A.ORDER_ID = E.order_id)
+WHERE e.FIRST_PAYMENT_UP_FRONT= 1
+and B.instalment_seq_id = 1
+and C.payment_source IN ('Charge at ship', 'BUY_PROCESS', 'POS', 'Buy process')
+and A.EVENT_TYPE in ('PAYMENT')
+group by	1
+),
+
+PRINCIPAL_STAGING AS
+(
+select 
+a.order_id,
+a.order_amt,
+case when b.DISCOUNT_AMT is null then 0 else b.DISCOUNT_AMT end DISCOUNT_AMT,
+case when c.DOWN_PAYMENT_AMT is null then 0 else c.DOWN_PAYMENT_AMT end DOWN_PAYMENT_AMT
+from BASE a
+LEFT JOIN DISCOUNT B
+ON a.order_id = b.order_id
+LEFT JOIN DOWNPAYMENT C
+ON a.order_id = c.order_id
+),
+
+PRINCIPAL AS --final table
+(
+select 
+order_id,
+(order_amt - discount_amt - down_payment_amt) PRINCIPAL_AMT
+FROM PRINCIPAL_STAGING
+)
