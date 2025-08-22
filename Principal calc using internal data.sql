@@ -12,8 +12,9 @@ FROM AP_RAW_GREEN.green.F_ORDER a
 where	a.CONSUMER_ID in (....)--example of filtering
  and a.ORDER_DATE between '2020-03-16' and '2022-04-30'--example of filtering
  and a.ORDER_TRANSACTION_STATUS = 'Approved'
- and a.payment_type <>'PCL'
- and a.order_transaction_source not in ('ANYWHERE_CARD','ANYWHERE_CARD_ONLINE')
+ and a.payment_type <>'PCL' -- this will get BNPL only
+ and a.order_transaction_source not in ('ANYWHERE_CARD','ANYWHERE_CARD_ONLINE') --- required to exclude Plus Card
+ -- and a.payment_type = 'PCL' -- this will get Pay Monthly only 
 ),
 
 instalment_seq AS --to correctly calculate the principal for BNPl and Plus
