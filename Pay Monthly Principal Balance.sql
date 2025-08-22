@@ -35,10 +35,12 @@ PM_ORDER_BALANCE_MAPPED AS
     SELECT
     a.loan_id,
     b.order_id,
-    a.order_bal
+    a.order_bal,
+    a.accrued_unpaid_interest,
+    a.unpaid_principal
     FROM pm_order_balance_temp  a
     LEFT JOIN PM_orders b 
     on a.loan_id = b.loan_id
-),
+)
 
-select sum(order_bal) from PM_ORDER_BALANCE_MAPPED 
+select sum(order_bal) total_order_balance_amt, sum(accrued_unpaid_interest) interest_balance_amt, sum(unpaid_principal) principal_balance_amt, from PM_ORDER_BALANCE_MAPPED 
